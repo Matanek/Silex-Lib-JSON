@@ -1,28 +1,128 @@
 use JSON
 use JSON.Format
 use JSON.Value
+use STD.FileSystem
+
+func parsed(text:str) JSON.Value {
+    return JSON.parse(text)
+}
+
+func is_file_read_error(error:JSON.ReadError) bool {
+    return match error { file(value) => true; parse(value) => false }
+}
+
+func read_error_detail(error:JSON.ReadError) str {
+    return match error { file(value) => value.detail; parse(value) => value.detail }
+}
+
+func read_value(path:str) JSON.Value {
+    return JSON.read(path)
+}
+
+func required_object(value:JSON.Value, name:str) JSON.Value {
+    return value.require_object(name)
+}
+
+func required_array(value:JSON.Value, name:str) JSON.Value {
+    return value.require_array(name)
+}
+
+func required_integer(value:JSON.Value, name:str) int {
+    return value.require_integer(name)
+}
+
+func required_string(value:JSON.Value, name:str) str {
+    return value.require_string(name)
+}
+
+func required_boolean(value:JSON.Value, name:str) bool {
+    return value.require_boolean(name)
+}
 
 test "parse and serialize an object" {
-    match JSON.parse("{\"name\":\"Silex\",\"unicode\":\"\\u00e9\\ud83d\\ude00\",\"items\":[1,true,null]}") {
-        failure(error) => { panic("valid JSON was rejected") }
-        success(var value) => {
-            assert(JSON.stringify(value, Format.compact()) == "{\"name\":\"Silex\",\"unicode\":\"é😀\",\"items\":[1,true,null]}", "JSON round trip")
-            if let members = value.as_object() {
-                assert(members.count() == 3, "JSON object members")
-            } else { panic("JSON object expected") }
+    var value = JSON.parse("{\"name\":\"Silex\",\"unicode\":\"\\u00e9\\ud83d\\ude00\",\"items\":[1,true,null]}")
+    assert(JSON.stringify(value, Format.compact()) == "{\"name\":\"Silex\",\"unicode\":\"é😀\",\"items\":[1,true,null]}", "JSON round trip")
+    assert(JSON.stringify(value) == JSON.stringify(value, Format.compact()), "compact JSON default")
+    if let members = value.as_object() { assert(members.count() == 3, "JSON object members") }
+    else { panic("JSON object expected") }
+}
+
+test "read modify and write application configuration" {
+    let path = "/private/tmp/silex-json-test.json"
+    let ignored = FileSystem.remove_file(path)
+    var config = parsed("{\"window\":{\"width\":1280,\"fullscreen\":false},\"plugins\":[\"renderer\"],\"debug\":true}")
+
+    JSON.write(path, config)
+
+    var loaded = read_value(path)
+    var window = required_object(loaded, "window")
+    assert(required_integer(window, "width") == 1280, "JSON integer setting")
+    assert(!required_boolean(window, "fullscreen"), "JSON boolean setting")
+    window.set("width", 1920)
+    window.set("fullscreen", true)
+
+    var plugins = required_array(loaded, "plugins")
+    plugins.append("audio")
+    plugins.set_at(0, "gpu")
+    assert(plugins.remove_at(1), "remove JSON array item")
+    assert(loaded.remove("debug"), "remove JSON object member")
+
+    JSON.write(path, loaded, Format.compact())
+
+    var saved = read_value(path)
+    assert(required_integer(required_object(saved, "window"), "width") == 1920, "persist modified JSON integer")
+    assert(required_boolean(required_object(saved, "window"), "fullscreen"), "persist modified JSON boolean")
+    var saved_plugins = required_array(saved, "plugins")
+    assert(saved_plugins.count() == 1, "persist modified JSON array")
+    var first_plugin = saved_plugins.at(0)
+    if name = first_plugin.as_string() { assert(name == "gpu", "persist replaced JSON array item") }
+    else { panic("JSON plugin name is not a string") }
+
+    let limits = JSON.ReadOptions(maximum_bytes:4, maximum_depth:128)
+    match JSON.try_read(path, limits) {
+        success(value) => { panic("JSON file exceeded its explicit byte limit") }
+        failure(error) => {
+            assert(is_file_read_error(error), "JSON file limit error kind")
+            assert(read_error_detail(error).count() > 0, "JSON file limit error detail")
         }
     }
+    match FileSystem.remove_file(path) { failure(error) => { panic(error.detail) }; success => {} }
+}
+
+test "structured JSON access failures describe the requested operation" {
+    var root = parsed("{\"name\":\"Silex\",\"items\":[1]}")
+    match root.try_require("missing") {
+        success(value) => { panic("missing JSON member was returned") }
+        failure(error) => {
+            assert(error.kind == JSON.AccessErrorKind.missing_member(), "missing JSON member error")
+            assert(error.subject == "missing", "missing JSON member subject")
+        }
+    }
+    match root.try_require_integer("name") {
+        success(value) => { panic("JSON string was projected as an integer") }
+        failure(error) => { assert(error.kind == JSON.AccessErrorKind.wrong_kind(), "JSON projection kind error") }
+    }
+    var items = required_array(root, "items")
+    match items.try_at(2) {
+        success(value) => { panic("out-of-bounds JSON value was returned") }
+        failure(error) => { assert(error.kind == JSON.AccessErrorKind.index_out_of_bounds(), "JSON index error") }
+    }
+    match root.try_append(2) {
+        success => { panic("value was appended to a JSON object") }
+        failure(error) => { assert(error.kind == JSON.AccessErrorKind.wrong_kind(), "JSON mutation kind error") }
+    }
+    assert(required_string(root, "name") == "Silex", "required JSON string")
 }
 
 test "reject duplicate object members" {
-    match JSON.parse("{\"duplicate\":1,\"duplicate\":2}") {
+    match JSON.try_parse("{\"duplicate\":1,\"duplicate\":2}") {
         success(var value) => { panic("duplicate JSON member was accepted") }
         failure(error) => { assert(error.byte_offset > 0, "JSON error location") }
     }
 }
 
 test "reject an invalid number" {
-    match Value.number_text("01") {
+    match Value.try_number_text("01") {
         success(var value) => { panic("invalid JSON number was accepted") }
         failure(error) => {}
     }
@@ -49,10 +149,8 @@ test "construct and project every JSON value kind" {
     } else { panic("array projection was absent") }
     assert(array_value.encoded(false) == "[null,true,\"Silex\",42,7]", "direct compact encoding")
 
-    match Value.number(1.5 as float64) {
-        failure(error) => { panic("finite floating-point number was rejected") }
-        success(var value) => { assert(value.kind() == JSON.Kind.number(), "floating-point kind") }
-    }
+    var floating_value = Value.number(1.5 as float64)
+    assert(floating_value.kind() == JSON.Kind.number(), "floating-point kind")
 }
 
 test "explicit parse depth is enforced" {
@@ -60,7 +158,7 @@ test "explicit parse depth is enforced" {
         success(var value) => { panic("value exceeded explicit depth") }
         failure(error) => { assert(error.kind == JSON.ParseErrorKind.depth_limit(), "depth error kind") }
     }
-    match JSON.parse("[1]", 1) {
+    match JSON.try_parse("[1]", 1) {
         failure(error) => { panic("value within explicit depth was rejected") }
         success(var value) => {}
     }

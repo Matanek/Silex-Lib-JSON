@@ -11,8 +11,6 @@ func main() {
         Member(name:"checks", value:Value.array(checks)),
     ]
 
-    match Value.object(members) {
-        failure(error) => { panic("Could not build the JSON report") }
-        success(report) => { print(JSON.stringify(report, Format.pretty())) }
-    }
+    var report = Value.object(members)
+    print(JSON.stringify(report, Format.pretty()))
 }

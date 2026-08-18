@@ -1,0 +1,11 @@
+use JSON
+
+func main() {
+    let path = "application.json"
+    var config = JSON.read(path)
+    var window = config.require_object("window")
+
+    window.set("width", 1920)
+    window.set("fullscreen", true)
+    JSON.write(path, config)
+}

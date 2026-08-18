@@ -1,16 +1,10 @@
 use JSON
 
 func main() {
-    let source = "{\"application\":\"Silex\",\"debug\":true,\"workers\":4}"
-    match JSON.parse(source) {
-        failure(error) => {
-            print("Invalid configuration at $(error.line):$(error.column): $(error.detail)")
-        }
-        success(value) => {
-            if members = value.as_object() {
-                print("Configuration entries: $(members.count())")
-                for member in members { print("- $(member.name)") }
-            }
-        }
+    let source = embed_text("Defaults.json")
+    var config = JSON.parse(source)
+    if members = config.as_object() {
+        print("Configuration entries: $(members.count())")
+        for member in members { print("- $(member.name)") }
     }
 }

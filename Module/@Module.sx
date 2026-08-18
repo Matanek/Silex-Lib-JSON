@@ -1,4 +1,7 @@
 use Interop.C
+use STD.Error
+use STD.Path.Path as Path
+use STD.File
 use STD.Text.UTF8.bytes as utf8_bytes
 
 public enum Kind {
@@ -21,6 +24,19 @@ public enum BuildError {
     duplicate_member(str)
 }
 
+public enum AccessErrorKind {
+    missing_member
+    wrong_kind
+    invalid_number
+    index_out_of_bounds
+}
+
+public struct AccessError {
+    let kind:AccessErrorKind
+    let subject:str
+    let detail:str
+}
+
 public enum ParseErrorKind {
     unexpected_end
     unexpected_token
@@ -40,6 +56,16 @@ public struct ParseError {
     let detail:str
 }
 
+public struct ReadOptions {
+    let maximum_bytes:int
+    let maximum_depth:int
+}
+
+public enum ReadError {
+    file(Error)
+    parse(ParseError)
+}
+
 public struct Member {
     let name:str
     var value:Value
@@ -50,7 +76,7 @@ public class Value {
     private let boolean_value:bool
     private let text_value:str
     private var children:Value[]
-    private let names:str[]
+    private var names:str[]
 
     private init(raw_kind:int, boolean_value:bool, text_value:str, children:Value[], names:str[]) {
         self.raw_kind = raw_kind
@@ -64,7 +90,7 @@ public class Value {
     static func boolean(value:bool) Value { return Value(2, value, "", [], []) }
     static func string(value:str) Value { return Value(3, false, value, [], []) }
 
-    static func number_text(value:str) Result<Value, BuildError> {
+    static func try_number_text(value:str) Result<Value, BuildError> {
         if !valid_number(utf8_bytes(value)) {
             return Result<Value, BuildError>.failure(BuildError.invalid_number(value))
         }
@@ -74,7 +100,7 @@ public class Value {
     static func number(value:int) Value { return Value(4, false, "$(value)", [], []) }
     static func number(value:uint) Value { return Value(4, false, "$(value)", [], []) }
 
-    static func number(value:float64) Result<Value, BuildError> {
+    static func try_number(value:float64) Result<Value, BuildError> {
         if value - value != 0.0 {
             return Result<Value, BuildError>.failure(BuildError.non_finite_number())
         }
@@ -85,7 +111,7 @@ public class Value {
 
     static func array(values:Value[]) Value { return Value(5, false, "", values, []) }
 
-    static func object(members:Member[]) Result<Value, BuildError> {
+    static func try_object(members:Member[]) Result<Value, BuildError> {
         var names:str[] = []
         var values:Value[] = []
         for member in members {
@@ -98,6 +124,27 @@ public class Value {
             values.append(member.value)
         }
         return Result<Value, BuildError>.success(Value(6, false, "", values, names))
+    }
+
+    static func number_text(value:str) Value {
+        match Value.try_number_text(value) {
+            failure(error) => { panic("invalid JSON number '$(value)'") }
+            success(number) => { return number }
+        }
+    }
+
+    static func number(value:float64) Value {
+        match Value.try_number(value) {
+            failure(error) => { panic("JSON number must be finite") }
+            success(number) => { return number }
+        }
+    }
+
+    static func object(members:Member[]) Value {
+        match Value.try_object(members) {
+            failure(error) => { panic("duplicate JSON object member") }
+            success(object) => { return object }
+        }
     }
 
     func kind() Kind {
@@ -124,6 +171,11 @@ public class Value {
         return self.text_value
     }
 
+    func as_integer() int? {
+        if self.raw_kind != 4 { return null }
+        return parse_decimal_integer(self.text_value)
+    }
+
     func as_array() Value[]? {
         if self.raw_kind != 5 { return null }
         return self.children
@@ -138,6 +190,241 @@ public class Value {
             index++
         }
         return result
+    }
+
+    func count() int {
+        if self.raw_kind == 5 || self.raw_kind == 6 { return self.children.count() }
+        return 0
+    }
+
+    func try_at(index:int) Result<Value, AccessError> {
+        if self.raw_kind != 5 {
+            return self.access_value_failure(AccessErrorKind.wrong_kind(), "value is not a JSON array")
+        }
+        if index < 0 || index >= self.children.count() {
+            return self.access_value_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds")
+        }
+        return Result<Value, AccessError>.success(self.children[index])
+    }
+
+    func member(name:str) Value? {
+        if self.raw_kind != 6 { return null }
+        var index = 0
+        while index < self.names.count() {
+            if self.names[index] == name { return self.children[index] }
+            index++
+        }
+        return null
+    }
+
+    func try_require(name:str) Result<Value, AccessError> {
+        if self.raw_kind != 6 {
+            return self.access_value_failure(AccessErrorKind.wrong_kind(), "member lookup requires a JSON object")
+        }
+        if value = self.member(name) { return Result<Value, AccessError>.success(value) }
+        return self.access_named_value_failure(AccessErrorKind.missing_member(), name, "missing JSON member '$(name)'")
+    }
+
+    func try_require_string(name:str) Result<str, AccessError> {
+        var value = try self.try_require(name)
+        if actual = value.as_string() { return Result<str, AccessError>.success(actual) }
+        return value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a string")
+    }
+
+    func try_require_boolean(name:str) Result<bool, AccessError> {
+        var value = try self.try_require(name)
+        if actual = value.as_boolean() { return Result<bool, AccessError>.success(actual) }
+        return value.access_boolean_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a boolean")
+    }
+
+    func try_require_number_text(name:str) Result<str, AccessError> {
+        var value = try self.try_require(name)
+        if actual = value.as_number_text() { return Result<str, AccessError>.success(actual) }
+        return value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number")
+    }
+
+    func try_require_integer(name:str) Result<int, AccessError> {
+        var value = try self.try_require(name)
+        if actual = value.as_integer() { return Result<int, AccessError>.success(actual) }
+        if value.raw_kind == 4 {
+            return value.access_integer_failure(AccessErrorKind.invalid_number(), name, "JSON member '$(name)' is not an integer")
+        }
+        return value.access_integer_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number")
+    }
+
+    func try_require_array(name:str) Result<Value, AccessError> {
+        var value = try self.try_require(name)
+        if value.raw_kind == 5 { return Result<Value, AccessError>.success(value) }
+        return value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an array")
+    }
+
+    func try_require_object(name:str) Result<Value, AccessError> {
+        var value = try self.try_require(name)
+        if value.raw_kind == 6 { return Result<Value, AccessError>.success(value) }
+        return value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an object")
+    }
+
+    func try_set(name:str, value:Value) Result<void, AccessError> {
+        if self.raw_kind != 6 {
+            return self.access_failure(AccessErrorKind.wrong_kind(), "set requires a JSON object")
+        }
+        var index = 0
+        while index < self.names.count() {
+            if self.names[index] == name {
+                self.children[index] = value
+                return Result<void, AccessError>.success()
+            }
+            index++
+        }
+        self.names.append(name)
+        self.children.append(value)
+        return Result<void, AccessError>.success()
+    }
+
+    func try_set(name:str, value:str) Result<void, AccessError> { return self.try_set(name, Value.string(value)) }
+    func try_set(name:str, value:int) Result<void, AccessError> { return self.try_set(name, Value.number(value)) }
+    func try_set(name:str, value:uint) Result<void, AccessError> { return self.try_set(name, Value.number(value)) }
+    func try_set(name:str, value:bool) Result<void, AccessError> { return self.try_set(name, Value.boolean(value)) }
+
+    func try_set_at(index:int, value:Value) Result<void, AccessError> {
+        if self.raw_kind != 5 {
+            return self.access_failure(AccessErrorKind.wrong_kind(), "indexed set requires a JSON array")
+        }
+        if index < 0 || index >= self.children.count() {
+            return self.access_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds")
+        }
+        self.children[index] = value
+        return Result<void, AccessError>.success()
+    }
+
+    func try_set_at(index:int, value:str) Result<void, AccessError> { return self.try_set_at(index, Value.string(value)) }
+    func try_set_at(index:int, value:int) Result<void, AccessError> { return self.try_set_at(index, Value.number(value)) }
+    func try_set_at(index:int, value:uint) Result<void, AccessError> { return self.try_set_at(index, Value.number(value)) }
+    func try_set_at(index:int, value:bool) Result<void, AccessError> { return self.try_set_at(index, Value.boolean(value)) }
+
+    func try_append(value:Value) Result<void, AccessError> {
+        if self.raw_kind != 5 {
+            return self.access_failure(AccessErrorKind.wrong_kind(), "append requires a JSON array")
+        }
+        self.children.append(value)
+        return Result<void, AccessError>.success()
+    }
+
+    func try_append(value:str) Result<void, AccessError> { return self.try_append(Value.string(value)) }
+    func try_append(value:int) Result<void, AccessError> { return self.try_append(Value.number(value)) }
+    func try_append(value:uint) Result<void, AccessError> { return self.try_append(Value.number(value)) }
+    func try_append(value:bool) Result<void, AccessError> { return self.try_append(Value.boolean(value)) }
+
+    func at(index:int) Value {
+        match self.try_at(index) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require(name:str) Value {
+        match self.try_require(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_string(name:str) str {
+        match self.try_require_string(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_boolean(name:str) bool {
+        match self.try_require_boolean(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_number_text(name:str) str {
+        match self.try_require_number_text(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_integer(name:str) int {
+        match self.try_require_integer(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_array(name:str) Value {
+        match self.try_require_array(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func require_object(name:str) Value {
+        match self.try_require_object(name) {
+            failure(error) => { panic(error.detail) }
+            success(value) => { return value }
+        }
+    }
+
+    func set(name:str, value:Value) {
+        match self.try_set(name, value) { failure(error) => { panic(error.detail) }; success => {} }
+    }
+    func set(name:str, value:str) { self.set(name, Value.string(value)) }
+    func set(name:str, value:int) { self.set(name, Value.number(value)) }
+    func set(name:str, value:uint) { self.set(name, Value.number(value)) }
+    func set(name:str, value:bool) { self.set(name, Value.boolean(value)) }
+
+    func set_at(index:int, value:Value) {
+        match self.try_set_at(index, value) { failure(error) => { panic(error.detail) }; success => {} }
+    }
+    func set_at(index:int, value:str) { self.set_at(index, Value.string(value)) }
+    func set_at(index:int, value:int) { self.set_at(index, Value.number(value)) }
+    func set_at(index:int, value:uint) { self.set_at(index, Value.number(value)) }
+    func set_at(index:int, value:bool) { self.set_at(index, Value.boolean(value)) }
+
+    func append(value:Value) {
+        match self.try_append(value) { failure(error) => { panic(error.detail) }; success => {} }
+    }
+    func append(value:str) { self.append(Value.string(value)) }
+    func append(value:int) { self.append(Value.number(value)) }
+    func append(value:uint) { self.append(Value.number(value)) }
+    func append(value:bool) { self.append(Value.boolean(value)) }
+
+    func remove(name:str) bool {
+        if self.raw_kind != 6 { return false }
+        var index = 0
+        while index < self.names.count() {
+            if self.names[index] == name {
+                let last = self.names.count() - 1
+                while index < last {
+                    self.names[index] = self.names[index + 1]
+                    self.children[index] = self.children[index + 1]
+                    index++
+                }
+                self.names.take_last()
+                self.children.take_last()
+                return true
+            }
+            index++
+        }
+        return false
+    }
+
+    func remove_at(index:int) bool {
+        if self.raw_kind != 5 || index < 0 || index >= self.children.count() { return false }
+        let last = self.children.count() - 1
+        var current = index
+        while current < last {
+            self.children[current] = self.children[current + 1]
+            current++
+        }
+        self.children.take_last()
+        return true
     }
 
     func encoded(pretty:bool) str {
@@ -181,6 +468,30 @@ public class Value {
     static func parse_text(text:str, maximum_depth:int) Result<Value, ParseError> {
         var parser = Parser(utf8_bytes(text), maximum_depth)
         return parser.run()
+    }
+
+    private func access_failure(kind:AccessErrorKind, detail:str) Result<void, AccessError> {
+        return Result<void, AccessError>.failure(AccessError(kind:kind, subject:"", detail:detail))
+    }
+
+    private func access_value_failure(kind:AccessErrorKind, detail:str) Result<Value, AccessError> {
+        return Result<Value, AccessError>.failure(AccessError(kind:kind, subject:"", detail:detail))
+    }
+
+    private func access_named_value_failure(kind:AccessErrorKind, subject:str, detail:str) Result<Value, AccessError> {
+        return Result<Value, AccessError>.failure(AccessError(kind:kind, subject:subject, detail:detail))
+    }
+
+    private func access_text_failure(kind:AccessErrorKind, subject:str, detail:str) Result<str, AccessError> {
+        return Result<str, AccessError>.failure(AccessError(kind:kind, subject:subject, detail:detail))
+    }
+
+    private func access_boolean_failure(kind:AccessErrorKind, subject:str, detail:str) Result<bool, AccessError> {
+        return Result<bool, AccessError>.failure(AccessError(kind:kind, subject:subject, detail:detail))
+    }
+
+    private func access_integer_failure(kind:AccessErrorKind, subject:str, detail:str) Result<int, AccessError> {
+        return Result<int, AccessError>.failure(AccessError(kind:kind, subject:subject, detail:detail))
     }
 }
 
@@ -243,7 +554,7 @@ class Parser {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(value) => { text = value }
             }
-            match Value.number_text(text) {
+            match Value.try_number_text(text) {
                 success(var value) => { return Result<Value, ParseError>.success(value) }
                 failure(error) => { return self.failure(ParseErrorKind.invalid_number(), "invalid number") }
             }
@@ -384,7 +695,7 @@ class Parser {
         self.space()
         var members:Member[] = []
         if self.take(125) {
-            match Value.object(members) {
+            match Value.try_object(members) {
                 success(var value) => { return Result<Value, ParseError>.success(value) }
                 failure(error) => { return self.failure(ParseErrorKind.duplicate_member(), "duplicate object member") }
             }
@@ -412,7 +723,7 @@ class Parser {
             }
             self.space()
             if self.take(125) {
-                match Value.object(members) {
+                match Value.try_object(members) {
                     success(var value) => { return Result<Value, ParseError>.success(value) }
                     failure(error) => { return self.failure(ParseErrorKind.duplicate_member(), "duplicate object member") }
                 }
@@ -457,8 +768,42 @@ class Parser {
     private func failure_int(kind:ParseErrorKind, detail:str) Result<int, ParseError> { return Result<int, ParseError>.failure(self.error(kind, detail)) }
 }
 
-public func parse(text:str) Result<Value, ParseError> { return parse(text, 128) }
-public func parse(text:str, maximum_depth:int) Result<Value, ParseError> { return Value.parse_text(text, maximum_depth) }
+public func try_parse(text:str) Result<Value, ParseError> { return try_parse(text, 128) }
+public func try_parse(text:str, maximum_depth:int) Result<Value, ParseError> { return Value.parse_text(text, maximum_depth) }
+
+public func parse(text:str) Value { return parse(text, 128) }
+public func parse(text:str, maximum_depth:int) Value {
+    match try_parse(text, maximum_depth) {
+        failure(error) => { panic("$(error.line):$(error.column): " + error.detail) }
+        success(value) => { return value }
+    }
+}
+
+public func try_read(path:Path) Result<Value, ReadError> {
+    return try_read(path, default_read_options())
+}
+
+public func try_read(path:Path, options:ReadOptions) Result<Value, ReadError> {
+    var text = ""
+    match File.read_text(path, options.maximum_bytes) {
+        failure(error) => { return Result<Value, ReadError>.failure(ReadError.file(error)) }
+        success(value) => { text = value }
+    }
+    match try_parse(text, options.maximum_depth) {
+        failure(error) => { return Result<Value, ReadError>.failure(ReadError.parse(error)) }
+        success(value) => { return Result<Value, ReadError>.success(value) }
+    }
+}
+
+public func read(path:Path) Value { return read(path, default_read_options()) }
+public func read(path:Path, options:ReadOptions) Value {
+    match try_read(path, options) {
+        failure(error) => { panic(read_error_detail(error)) }
+        success(value) => { return value }
+    }
+}
+
+public func stringify(value:Value) str { return stringify(value, Format.compact()) }
 
 public func stringify(value:Value, format:Format) str {
     let pretty = match format {
@@ -466,6 +811,50 @@ public func stringify(value:Value, format:Format) str {
         pretty => true
     }
     return value.encoded(pretty)
+}
+
+public func try_write(path:Path, value:Value) Result<void, Error> {
+    return try_write(path, value, Format.pretty())
+}
+
+public func try_write(path:Path, value:Value, format:Format) Result<void, Error> {
+    return File.write_all(path, stringify(value, format))
+}
+
+public func write(path:Path, value:Value) { write(path, value, Format.pretty()) }
+public func write(path:Path, value:Value, format:Format) {
+    match try_write(path, value, format) {
+        failure(error) => { panic(error.detail) }
+        success => {}
+    }
+}
+
+func default_read_options() ReadOptions {
+    return ReadOptions(maximum_bytes:16 * 1024 * 1024, maximum_depth:128)
+}
+
+func read_error_detail(error:ReadError) str {
+    return match error { file(value) => value.detail; parse(value) => value.detail }
+}
+
+func parse_decimal_integer(value:str) int? {
+    let bytes = utf8_bytes(value)
+    if bytes.count() == 0 { return null }
+    var index = 0
+    var negative = false
+    if bytes[index] == 45 { negative = true; index++ }
+    if index == bytes.count() { return null }
+    var result = 0
+    while index < bytes.count() {
+        let byte = bytes[index]
+        if byte < 48 || byte > 57 { return null }
+        let digit = (byte - 48) as int
+        if result > (9_223_372_036_854_775_807 - digit) / 10 { return null }
+        result = result * 10 + digit
+        index++
+    }
+    if negative { return -result }
+    return result
 }
 
 func valid_number(values:uint8[]) bool {

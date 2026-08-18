@@ -1,0 +1,5 @@
+{
+  "application": "Silex",
+  "debug": true,
+  "workers": 4
+}
