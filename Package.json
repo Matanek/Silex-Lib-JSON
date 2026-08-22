@@ -1,8 +1,10 @@
 {
   "name": "JSON",
-  "version": "0.1.1",
+  "version": "0.2.0",
+  "description": "Parse, inspect, construct, and serialize JSON values without losing numeric precision.",
+  "authors": ["Matanek"],
   "requires": {
-    "silex": ">=0.38.33"
+    "silex": ">=0.39.0"
   },
   "dependencies": {
     "STD": "^0.16.5"
