@@ -37,8 +37,8 @@ values retain their identity, so modifying `window` above modifies `config`.
 `require_integer` accepts JSON numbers written in integer form and rejects
 fractional or exponent notation instead of converting through floating point.
 
-See [EditConfiguration.sx](Examples/EditConfiguration.sx) for the complete
-file workflow.
+The complete file workflow is preserved in
+[Docs/Recipes.md](Docs/Recipes.md#editconfiguration).
 
 ## Parse text or embedded files
 
@@ -57,9 +57,7 @@ Inspect `Value.kind()` or use the optional typed projections `as_boolean`,
 their source decimal text instead of silently losing precision. Object members
 preserve names and values, while duplicate names are rejected.
 
-[ReadConfiguration.sx](Examples/ReadConfiguration.sx) demonstrates embedded
-configuration through the direct path.
-[InspectValueKinds.sx](Examples/InspectValueKinds.sx) covers every
+[Docs/Recipes.md](Docs/Recipes.md) documents embedded configuration, every
 typed projection, explicit parse depth and the direct compatibility encoder.
 
 ## Construct output
@@ -72,7 +70,7 @@ object names stop with a diagnostic in the ordinary API.
 `Format.pretty()` produces indented human-readable output. `Value.encoded`
 offers the same choice through a boolean for compatibility. Prefer
 `JSON.stringify` in new code because the format is named at the call site.
-See [WriteReport.sx](Examples/WriteReport.sx).
+See the complete [report recipe](Docs/Recipes.md#writereport).
 
 ## Advanced file limits
 
@@ -108,11 +106,9 @@ projections and array bounds. Fallible construction similarly uses
 
 ## Development
 
-Register the checkout, then exercise the public API through its consumer tests
-and examples:
+Register the checkout, then exercise the public API through its consumer tests:
 
 ```text
 silex link .
 silex test "$PWD/Tests"
-silex compile "$PWD/Examples/ReadConfiguration.sx" -o read-json-config
 ```

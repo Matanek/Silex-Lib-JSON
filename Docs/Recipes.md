@@ -1,3 +1,37 @@
+# Recettes JSON
+
+Ces recettes documentent des parcours complets sans maintenir un catalogue
+d’exécutables dans le package.
+
+## Defaults
+
+```json
+{
+  "application": "Silex",
+  "debug": true,
+  "workers": 4
+}
+```
+
+## EditConfiguration
+
+```sx
+use JSON
+
+func main() {
+    let path = "application.json"
+    var config = JSON.read(path)
+    var window = config.require_object("window")
+
+    window.set("width", 1920)
+    window.set("fullscreen", true)
+    JSON.write(path, config)
+}
+```
+
+## InspectValueKinds
+
+```sx
 use JSON
 
 func describe_boolean(value:JSON.Value) str {
@@ -45,3 +79,40 @@ func main() {
         }
     }
 }
+```
+
+## ReadConfiguration
+
+```sx
+use JSON
+
+func main() {
+    let source = embed_text("Defaults.json")
+    var config = JSON.parse(source)
+    if members = config.as_object() {
+        print("Configuration entries: $(members.count())")
+        for member in members { print("- $(member.name)") }
+    }
+}
+```
+
+## WriteReport
+
+```sx
+use JSON
+use JSON.Format
+use JSON.Member
+use JSON.Value
+
+func main() {
+    var checks:Value[] = [Value.string("compile"), Value.string("test")]
+    var members:Member[] = [
+        Member(name:"project", value:Value.string("Silex")),
+        Member(name:"passed", value:Value.boolean(true)),
+        Member(name:"checks", value:Value.array(checks)),
+    ]
+
+    var report = Value.object(members)
+    print(JSON.stringify(report, Format.pretty()))
+}
+```
