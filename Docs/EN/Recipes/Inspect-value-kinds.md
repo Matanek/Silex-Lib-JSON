@@ -1,35 +1,7 @@
-# Recettes JSON
+# Inspect value kinds
 
-Ces recettes documentent des parcours complets sans maintenir un catalogue
-d’exécutables dans le package.
-
-## Defaults
-
-```json
-{
-  "application": "Silex",
-  "debug": true,
-  "workers": 4
-}
-```
-
-## EditConfiguration
-
-```sx
-use JSON
-
-func main() {
-    let path = "application.json"
-    var config = JSON.read(path)
-    var window = config.require_object("window")
-
-    window.set("width", 1920)
-    window.set("fullscreen", true)
-    JSON.write(path, config)
-}
-```
-
-## InspectValueKinds
+This recipe combines `kind()` and optional projections to describe a value
+without assuming its structure.
 
 ```sx
 use JSON
@@ -81,38 +53,8 @@ func main() {
 }
 ```
 
-## ReadConfiguration
+The `kind()` branch guarantees the expected projection. Projections remain
+optional so the same function can also handle a value received without a
+prior contract.
 
-```sx
-use JSON
-
-func main() {
-    let source = embed_text("Defaults.json")
-    var config = JSON.parse(source)
-    if members = config.as_object() {
-        print("Configuration entries: $(members.count())")
-        for member in members { print("- $(member.name)") }
-    }
-}
-```
-
-## WriteReport
-
-```sx
-use JSON
-use JSON.Format
-use JSON.Member
-use JSON.Value
-
-func main() {
-    var checks:Value[] = [Value.string("compile"), Value.string("test")]
-    var members:Member[] = [
-        Member(name:"project", value:Value.string("Silex")),
-        Member(name:"passed", value:Value.boolean(true)),
-        Member(name:"checks", value:Value.array(checks)),
-    ]
-
-    var report = Value.object(members)
-    print(JSON.stringify(report, Format.pretty()))
-}
-```
+[Return to the JSON documentation](../README.md)
