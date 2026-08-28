@@ -1,10 +1,13 @@
 {
   "name": "JSON",
   "version": "0.2.0",
-  "description": "Parse, inspect, construct, and serialize JSON values without losing numeric precision.",
+  "description": {
+    "en": "Parse, inspect, construct, and serialize JSON values without losing numeric precision.",
+    "fr": "Analyse, inspecte, construit et sérialise des valeurs JSON sans perdre leur précision numérique."
+  },
   "authors": ["Matanek"],
   "requires": {
-    "silex": ">=0.39.0"
+    "silex": ">=0.42.0"
   },
   "dependencies": {
     "STD": "^0.16.5"
