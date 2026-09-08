@@ -1,6 +1,6 @@
 {
   "name": "JSON",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": {
     "en": "Parse, inspect, construct, and serialize JSON values without losing numeric precision.",
     "fr": "Analyse, inspecte, construit et sérialise des valeurs JSON sans perdre leur précision numérique."
