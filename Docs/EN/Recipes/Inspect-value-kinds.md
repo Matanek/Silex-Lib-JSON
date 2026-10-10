@@ -43,7 +43,7 @@ func describe(value:JSON.Value) str {
 }
 
 func main() {
-    match JSON.Value.parse_text("[null,true,\"Silex\",42]", 8) {
+    match (try JSON.Value.parse_text("[null,true,\"Silex\",42]", 8)) {
         failure(error) => { panic(error.detail) }
         success(value) => {
             print(describe(value))

@@ -17,7 +17,8 @@ Then import its public module:
 use JSON
 ```
 
-JSON requires Silex 0.39.0 or newer.
+This development revision requires the toolchain that distinguishes ordinary
+calls from `try` capture for `Result` operations.
 
 ## Read and modify a configuration
 
@@ -58,7 +59,7 @@ diagnostic. Its `maximum_depth` overload bounds recursion; the default limit is
 An embedded JSON file remains ordinary text:
 
 ```sx
-let defaults = JSON.parse(embed_text("Defaults.json"))
+var defaults = JSON.parse(embed_text("Defaults.json"))
 ```
 
 Inspect `Value.kind()` or use the optional projections `as_boolean`,
@@ -93,16 +94,18 @@ let limits = JSON.ReadOptions(
     maximum_bytes:64 * 1024 * 1024,
     maximum_depth:512,
 )
-let scene = JSON.read("Scenes/world.json", limits)
+var scene = JSON.read("Scenes/world.json", limits)
 ```
 
 ## Recover from errors
 
-An application that must continue can use `try_parse`, `try_read`, `try_write`,
-the `try_require_*` projections, and the `try_set`, `try_append`, `try_at`, and
-`try_set_at` mutations.
+Each operation has one name and one `Result` declaration. An ordinary call
+returns the expected value or stops the program on failure. Add `try` to keep
+the `Result` and choose how to handle the error: `var result = try JSON.parse(text)`,
+then `match result`. The `require_*` projections and the `set`, `append`, `at`,
+and `set_at` mutations follow the same model.
 
 `ReadError` distinguishes file errors from source-located parse errors.
 `AccessError` distinguishes missing members, wrong kinds, invalid integer
 projections, and array bounds. Recoverable construction uses
-`Value.try_number`, `Value.try_number_text`, and `Value.try_object`.
+`Value.number`, `Value.number_text`, and `Value.object`.

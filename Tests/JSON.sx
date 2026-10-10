@@ -49,7 +49,7 @@ test "parse and serialize an object" {
 
 test "read modify and write application configuration" {
     let path = "/private/tmp/silex-json-test.json"
-    let ignored = FileSystem.remove_file(path)
+    let ignored = (try FileSystem.remove_file(path))
     var config = parsed("{\"window\":{\"width\":1280,\"fullscreen\":false},\"plugins\":[\"renderer\"],\"debug\":true}")
 
     JSON.write(path, config)
@@ -79,35 +79,35 @@ test "read modify and write application configuration" {
     else { panic("JSON plugin name is not a string") }
 
     let limits = JSON.ReadOptions(maximum_bytes:4, maximum_depth:128)
-    match JSON.try_read(path, limits) {
+    match (try JSON.read(path, limits)) {
         success(value) => { panic("JSON file exceeded its explicit byte limit") }
         failure(error) => {
             assert(is_file_read_error(error), "JSON file limit error kind")
             assert(read_error_detail(error).count() > 0, "JSON file limit error detail")
         }
     }
-    match FileSystem.remove_file(path) { failure(error) => { panic(error.detail) }; success => {} }
+    match (try FileSystem.remove_file(path)) { failure(error) => { panic(error.detail) }; success => {} }
 }
 
 test "structured JSON access failures describe the requested operation" {
     var root = parsed("{\"name\":\"Silex\",\"items\":[1]}")
-    match root.try_require("missing") {
+    match (try root.require("missing")) {
         success(value) => { panic("missing JSON member was returned") }
         failure(error) => {
             assert(error.kind == JSON.AccessErrorKind.missing_member(), "missing JSON member error")
             assert(error.subject == "missing", "missing JSON member subject")
         }
     }
-    match root.try_require_integer("name") {
+    match (try root.require_integer("name")) {
         success(value) => { panic("JSON string was projected as an integer") }
         failure(error) => { assert(error.kind == JSON.AccessErrorKind.wrong_kind(), "JSON projection kind error") }
     }
     var items = required_array(root, "items")
-    match items.try_at(2) {
+    match (try items.at(2)) {
         success(value) => { panic("out-of-bounds JSON value was returned") }
         failure(error) => { assert(error.kind == JSON.AccessErrorKind.index_out_of_bounds(), "JSON index error") }
     }
-    match root.try_append(2) {
+    match (try root.append(2)) {
         success => { panic("value was appended to a JSON object") }
         failure(error) => { assert(error.kind == JSON.AccessErrorKind.wrong_kind(), "JSON mutation kind error") }
     }
@@ -115,14 +115,14 @@ test "structured JSON access failures describe the requested operation" {
 }
 
 test "reject duplicate object members" {
-    match JSON.try_parse("{\"duplicate\":1,\"duplicate\":2}") {
+    match (try JSON.parse("{\"duplicate\":1,\"duplicate\":2}")) {
         success(var value) => { panic("duplicate JSON member was accepted") }
         failure(error) => { assert(error.byte_offset > 0, "JSON error location") }
     }
 }
 
 test "reject an invalid number" {
-    match Value.try_number_text("01") {
+    match (try Value.number_text("01")) {
         success(var value) => { panic("invalid JSON number was accepted") }
         failure(error) => {}
     }
@@ -154,11 +154,11 @@ test "construct and project every JSON value kind" {
 }
 
 test "explicit parse depth is enforced" {
-    match Value.parse_text("[[1]]", 1) {
+    match (try Value.parse_text("[[1]]", 1)) {
         success(var value) => { panic("value exceeded explicit depth") }
         failure(error) => { assert(error.kind == JSON.ParseErrorKind.depth_limit(), "depth error kind") }
     }
-    match JSON.try_parse("[1]", 1) {
+    match (try JSON.parse("[1]", 1)) {
         failure(error) => { panic("value within explicit depth was rejected") }
         success(var value) => {}
     }

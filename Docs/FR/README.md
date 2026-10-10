@@ -17,7 +17,8 @@ Importez ensuite son module public :
 use JSON
 ```
 
-JSON demande Silex 0.39.0 ou une version plus récente.
+Cette révision en développement requiert la toolchain qui distingue l’appel
+ordinaire et la capture `try` des opérations `Result`.
 
 ## Lire et modifier une configuration
 
@@ -59,7 +60,7 @@ limite par défaut vaut 128.
 Un fichier JSON incorporé reste du texte ordinaire :
 
 ```sx
-let defaults = JSON.parse(embed_text("Defaults.json"))
+var defaults = JSON.parse(embed_text("Defaults.json"))
 ```
 
 Inspectez `Value.kind()` ou utilisez les projections optionnelles
@@ -94,16 +95,18 @@ let limits = JSON.ReadOptions(
     maximum_bytes:64 * 1024 * 1024,
     maximum_depth:512,
 )
-let scene = JSON.read("Scenes/world.json", limits)
+var scene = JSON.read("Scenes/world.json", limits)
 ```
 
 ## Récupérer les erreurs
 
-Une application qui doit continuer peut employer `try_parse`, `try_read`,
-`try_write`, les projections `try_require_*` et les mutations `try_set`,
-`try_append`, `try_at` et `try_set_at`.
+Les mêmes opérations ont un seul nom et une seule déclaration `Result`. Un
+appel ordinaire rend la valeur attendue ou arrête le programme sur erreur.
+Ajoutez `try` pour conserver le `Result` et décider comment traiter l’erreur :
+`var résultat = try JSON.parse(texte)`, puis `match résultat`. Les projections
+`require_*` et les mutations `set`, `append`, `at` et `set_at` suivent ce modèle.
 
 `ReadError` distingue les erreurs de fichier des erreurs d’analyse localisées.
 `AccessError` distingue les membres absents, types incorrects, projections
 entières invalides et dépassements de tableau. La construction récupérable
-emploie `Value.try_number`, `Value.try_number_text` et `Value.try_object`.
+emploie `Value.number`, `Value.number_text` et `Value.object`.

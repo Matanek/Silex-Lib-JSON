@@ -90,7 +90,7 @@ public class Value {
     static func boolean(value:bool) Value { return Value(2, value, "", [], []) }
     static func string(value:str) Value { return Value(3, false, value, [], []) }
 
-    static func try_number_text(value:str) Result<Value, BuildError> {
+    static func number_text(value:str) Result<Value, BuildError> {
         if !valid_number(utf8_bytes(value)) {
             return Result<Value, BuildError>.failure(BuildError.invalid_number(value))
         }
@@ -100,7 +100,7 @@ public class Value {
     static func number(value:int) Value { return Value(4, false, "$(value)", [], []) }
     static func number(value:uint) Value { return Value(4, false, "$(value)", [], []) }
 
-    static func try_number(value:float64) Result<Value, BuildError> {
+    static func number(value:float64) Result<Value, BuildError> {
         if value - value != 0.0 {
             return Result<Value, BuildError>.failure(BuildError.non_finite_number())
         }
@@ -111,7 +111,7 @@ public class Value {
 
     static func array(values:Value[]) Value { return Value(5, false, "", values, []) }
 
-    static func try_object(members:Member[]) Result<Value, BuildError> {
+    static func object(members:Member[]) Result<Value, BuildError> {
         var names:str[] = []
         var values:Value[] = []
         for member in members {
@@ -126,26 +126,6 @@ public class Value {
         return Result<Value, BuildError>.success(Value(6, false, "", values, names))
     }
 
-    static func number_text(value:str) Value {
-        match Value.try_number_text(value) {
-            failure(error) => { panic("invalid JSON number '$(value)'") }
-            success(number) => { return number }
-        }
-    }
-
-    static func number(value:float64) Value {
-        match Value.try_number(value) {
-            failure(error) => { panic("JSON number must be finite") }
-            success(number) => { return number }
-        }
-    }
-
-    static func object(members:Member[]) Value {
-        match Value.try_object(members) {
-            failure(error) => { panic("duplicate JSON object member") }
-            success(object) => { return object }
-        }
-    }
 
     func kind() Kind {
         if self.raw_kind == 1 { return Kind.null_value() }
@@ -197,12 +177,12 @@ public class Value {
         return 0
     }
 
-    func try_at(index:int) Result<Value, AccessError> {
+    func at(index:int) Result<Value, AccessError> {
         if self.raw_kind != 5 {
-            return self.access_value_failure(AccessErrorKind.wrong_kind(), "value is not a JSON array")
+            return (try self.access_value_failure(AccessErrorKind.wrong_kind(), "value is not a JSON array"))
         }
         if index < 0 || index >= self.children.count() {
-            return self.access_value_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds")
+            return (try self.access_value_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds"))
         }
         return Result<Value, AccessError>.success(self.children[index])
     }
@@ -217,56 +197,56 @@ public class Value {
         return null
     }
 
-    func try_require(name:str) Result<Value, AccessError> {
+    func require(name:str) Result<Value, AccessError> {
         if self.raw_kind != 6 {
-            return self.access_value_failure(AccessErrorKind.wrong_kind(), "member lookup requires a JSON object")
+            return (try self.access_value_failure(AccessErrorKind.wrong_kind(), "member lookup requires a JSON object"))
         }
         if value = self.member(name) { return Result<Value, AccessError>.success(value) }
-        return self.access_named_value_failure(AccessErrorKind.missing_member(), name, "missing JSON member '$(name)'")
+        return (try self.access_named_value_failure(AccessErrorKind.missing_member(), name, "missing JSON member '$(name)'"))
     }
 
-    func try_require_string(name:str) Result<str, AccessError> {
-        var value = try self.try_require(name)
+    func require_string(name:str) Result<str, AccessError> {
+        var value = try self.require(name) else error { return Result<str,AccessError>.failure(error) }
         if actual = value.as_string() { return Result<str, AccessError>.success(actual) }
-        return value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a string")
+        return (try value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a string"))
     }
 
-    func try_require_boolean(name:str) Result<bool, AccessError> {
-        var value = try self.try_require(name)
+    func require_boolean(name:str) Result<bool, AccessError> {
+        var value = try self.require(name) else error { return Result<bool,AccessError>.failure(error) }
         if actual = value.as_boolean() { return Result<bool, AccessError>.success(actual) }
-        return value.access_boolean_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a boolean")
+        return (try value.access_boolean_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a boolean"))
     }
 
-    func try_require_number_text(name:str) Result<str, AccessError> {
-        var value = try self.try_require(name)
+    func require_number_text(name:str) Result<str, AccessError> {
+        var value = try self.require(name) else error { return Result<str,AccessError>.failure(error) }
         if actual = value.as_number_text() { return Result<str, AccessError>.success(actual) }
-        return value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number")
+        return (try value.access_text_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number"))
     }
 
-    func try_require_integer(name:str) Result<int, AccessError> {
-        var value = try self.try_require(name)
+    func require_integer(name:str) Result<int, AccessError> {
+        var value = try self.require(name) else error { return Result<int,AccessError>.failure(error) }
         if actual = value.as_integer() { return Result<int, AccessError>.success(actual) }
         if value.raw_kind == 4 {
-            return value.access_integer_failure(AccessErrorKind.invalid_number(), name, "JSON member '$(name)' is not an integer")
+            return (try value.access_integer_failure(AccessErrorKind.invalid_number(), name, "JSON member '$(name)' is not an integer"))
         }
-        return value.access_integer_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number")
+        return (try value.access_integer_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not a number"))
     }
 
-    func try_require_array(name:str) Result<Value, AccessError> {
-        var value = try self.try_require(name)
+    func require_array(name:str) Result<Value, AccessError> {
+        var value = try self.require(name) else error { return Result<Value,AccessError>.failure(error) }
         if value.raw_kind == 5 { return Result<Value, AccessError>.success(value) }
-        return value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an array")
+        return (try value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an array"))
     }
 
-    func try_require_object(name:str) Result<Value, AccessError> {
-        var value = try self.try_require(name)
+    func require_object(name:str) Result<Value, AccessError> {
+        var value = try self.require(name) else error { return Result<Value,AccessError>.failure(error) }
         if value.raw_kind == 6 { return Result<Value, AccessError>.success(value) }
-        return value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an object")
+        return (try value.access_named_value_failure(AccessErrorKind.wrong_kind(), name, "JSON member '$(name)' is not an object"))
     }
 
-    func try_set(name:str, value:Value) Result<void, AccessError> {
+    func set(name:str, value:Value) Result<void, AccessError> {
         if self.raw_kind != 6 {
-            return self.access_failure(AccessErrorKind.wrong_kind(), "set requires a JSON object")
+            return (try self.access_failure(AccessErrorKind.wrong_kind(), "set requires a JSON object"))
         }
         var index = 0
         while index < self.names.count() {
@@ -281,119 +261,40 @@ public class Value {
         return Result<void, AccessError>.success()
     }
 
-    func try_set(name:str, value:str) Result<void, AccessError> { return self.try_set(name, Value.string(value)) }
-    func try_set(name:str, value:int) Result<void, AccessError> { return self.try_set(name, Value.number(value)) }
-    func try_set(name:str, value:uint) Result<void, AccessError> { return self.try_set(name, Value.number(value)) }
-    func try_set(name:str, value:bool) Result<void, AccessError> { return self.try_set(name, Value.boolean(value)) }
+    func set(name:str, value:str) Result<void, AccessError> { return (try self.set(name, Value.string(value))) }
+    func set(name:str, value:int) Result<void, AccessError> { return (try self.set(name, Value.number(value))) }
+    func set(name:str, value:uint) Result<void, AccessError> { return (try self.set(name, Value.number(value))) }
+    func set(name:str, value:bool) Result<void, AccessError> { return (try self.set(name, Value.boolean(value))) }
 
-    func try_set_at(index:int, value:Value) Result<void, AccessError> {
+    func set_at(index:int, value:Value) Result<void, AccessError> {
         if self.raw_kind != 5 {
-            return self.access_failure(AccessErrorKind.wrong_kind(), "indexed set requires a JSON array")
+            return (try self.access_failure(AccessErrorKind.wrong_kind(), "indexed set requires a JSON array"))
         }
         if index < 0 || index >= self.children.count() {
-            return self.access_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds")
+            return (try self.access_failure(AccessErrorKind.index_out_of_bounds(), "JSON array index is outside its bounds"))
         }
         self.children[index] = value
         return Result<void, AccessError>.success()
     }
 
-    func try_set_at(index:int, value:str) Result<void, AccessError> { return self.try_set_at(index, Value.string(value)) }
-    func try_set_at(index:int, value:int) Result<void, AccessError> { return self.try_set_at(index, Value.number(value)) }
-    func try_set_at(index:int, value:uint) Result<void, AccessError> { return self.try_set_at(index, Value.number(value)) }
-    func try_set_at(index:int, value:bool) Result<void, AccessError> { return self.try_set_at(index, Value.boolean(value)) }
+    func set_at(index:int, value:str) Result<void, AccessError> { return (try self.set_at(index, Value.string(value))) }
+    func set_at(index:int, value:int) Result<void, AccessError> { return (try self.set_at(index, Value.number(value))) }
+    func set_at(index:int, value:uint) Result<void, AccessError> { return (try self.set_at(index, Value.number(value))) }
+    func set_at(index:int, value:bool) Result<void, AccessError> { return (try self.set_at(index, Value.boolean(value))) }
 
-    func try_append(value:Value) Result<void, AccessError> {
+    func append(value:Value) Result<void, AccessError> {
         if self.raw_kind != 5 {
-            return self.access_failure(AccessErrorKind.wrong_kind(), "append requires a JSON array")
+            return (try self.access_failure(AccessErrorKind.wrong_kind(), "append requires a JSON array"))
         }
         self.children.append(value)
         return Result<void, AccessError>.success()
     }
 
-    func try_append(value:str) Result<void, AccessError> { return self.try_append(Value.string(value)) }
-    func try_append(value:int) Result<void, AccessError> { return self.try_append(Value.number(value)) }
-    func try_append(value:uint) Result<void, AccessError> { return self.try_append(Value.number(value)) }
-    func try_append(value:bool) Result<void, AccessError> { return self.try_append(Value.boolean(value)) }
+    func append(value:str) Result<void, AccessError> { return (try self.append(Value.string(value))) }
+    func append(value:int) Result<void, AccessError> { return (try self.append(Value.number(value))) }
+    func append(value:uint) Result<void, AccessError> { return (try self.append(Value.number(value))) }
+    func append(value:bool) Result<void, AccessError> { return (try self.append(Value.boolean(value))) }
 
-    func at(index:int) Value {
-        match self.try_at(index) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require(name:str) Value {
-        match self.try_require(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_string(name:str) str {
-        match self.try_require_string(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_boolean(name:str) bool {
-        match self.try_require_boolean(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_number_text(name:str) str {
-        match self.try_require_number_text(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_integer(name:str) int {
-        match self.try_require_integer(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_array(name:str) Value {
-        match self.try_require_array(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func require_object(name:str) Value {
-        match self.try_require_object(name) {
-            failure(error) => { panic(error.detail) }
-            success(value) => { return value }
-        }
-    }
-
-    func set(name:str, value:Value) {
-        match self.try_set(name, value) { failure(error) => { panic(error.detail) }; success => {} }
-    }
-    func set(name:str, value:str) { self.set(name, Value.string(value)) }
-    func set(name:str, value:int) { self.set(name, Value.number(value)) }
-    func set(name:str, value:uint) { self.set(name, Value.number(value)) }
-    func set(name:str, value:bool) { self.set(name, Value.boolean(value)) }
-
-    func set_at(index:int, value:Value) {
-        match self.try_set_at(index, value) { failure(error) => { panic(error.detail) }; success => {} }
-    }
-    func set_at(index:int, value:str) { self.set_at(index, Value.string(value)) }
-    func set_at(index:int, value:int) { self.set_at(index, Value.number(value)) }
-    func set_at(index:int, value:uint) { self.set_at(index, Value.number(value)) }
-    func set_at(index:int, value:bool) { self.set_at(index, Value.boolean(value)) }
-
-    func append(value:Value) {
-        match self.try_append(value) { failure(error) => { panic(error.detail) }; success => {} }
-    }
-    func append(value:str) { self.append(Value.string(value)) }
-    func append(value:int) { self.append(Value.number(value)) }
-    func append(value:uint) { self.append(Value.number(value)) }
-    func append(value:bool) { self.append(Value.boolean(value)) }
 
     func remove(name:str) bool {
         if self.raw_kind != 6 { return false }
@@ -467,7 +368,7 @@ public class Value {
 
     static func parse_text(text:str, maximum_depth:int) Result<Value, ParseError> {
         var parser = Parser(utf8_bytes(text), maximum_depth)
-        return parser.run()
+        return (try parser.run())
     }
 
     private func access_failure(kind:AccessErrorKind, detail:str) Result<void, AccessError> {
@@ -507,61 +408,61 @@ class Parser {
     }
 
     func run() Result<Value, ParseError> {
-        if self.maximum_depth <= 0 { return self.failure(ParseErrorKind.depth_limit(), "maximum depth must be positive") }
+        if self.maximum_depth <= 0 { return (try self.failure(ParseErrorKind.depth_limit(), "maximum depth must be positive")) }
         self.space()
         var parsed:Value?
-        match self.value(0) {
+        match (try self.value(0)) {
             failure(error) => { return Result<Value, ParseError>.failure(error) }
             success(var value) => { parsed = value }
         }
         self.space()
-        if self.offset != self.input.count() { return self.failure(ParseErrorKind.trailing_data(), "trailing data") }
+        if self.offset != self.input.count() { return (try self.failure(ParseErrorKind.trailing_data(), "trailing data")) }
         if var result = parsed { return Result<Value, ParseError>.success(result) }
         panic("JSON parser did not produce a value")
     }
 
     private func value(depth:int) Result<Value, ParseError> {
         self.space()
-        if self.offset == self.input.count() { return self.failure(ParseErrorKind.unexpected_end(), "unexpected end") }
+        if self.offset == self.input.count() { return (try self.failure(ParseErrorKind.unexpected_end(), "unexpected end")) }
         let byte = self.input[self.offset]
         if byte == 110 {
-            match self.literal("null") {
+            match (try self.literal("null")) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success => { return Result<Value, ParseError>.success(Value.null_value()) }
             }
         }
         if byte == 116 {
-            match self.literal("true") {
+            match (try self.literal("true")) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success => { return Result<Value, ParseError>.success(Value.boolean(true)) }
             }
         }
         if byte == 102 {
-            match self.literal("false") {
+            match (try self.literal("false")) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success => { return Result<Value, ParseError>.success(Value.boolean(false)) }
             }
         }
         if byte == 34 {
-            match self.string_value() {
+            match (try self.string_value()) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(text) => { return Result<Value, ParseError>.success(Value.string(text)) }
             }
         }
         if byte == 45 || digit(byte) {
             var text = ""
-            match self.number_value() {
+            match (try self.number_value()) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(value) => { text = value }
             }
-            match Value.try_number_text(text) {
+            match (try Value.number_text(text)) {
                 success(var value) => { return Result<Value, ParseError>.success(value) }
-                failure(error) => { return self.failure(ParseErrorKind.invalid_number(), "invalid number") }
+                failure(error) => { return (try self.failure(ParseErrorKind.invalid_number(), "invalid number")) }
             }
         }
-        if byte == 91 { return self.array(depth + 1) }
-        if byte == 123 { return self.object(depth + 1) }
-        return self.failure(ParseErrorKind.unexpected_token(), "unexpected token")
+        if byte == 91 { return (try self.array(depth + 1)) }
+        if byte == 123 { return (try self.object(depth + 1)) }
+        return (try self.failure(ParseErrorKind.unexpected_token(), "unexpected token"))
     }
 
     private func literal(expected:str) Result<void, ParseError> {
@@ -569,7 +470,7 @@ class Parser {
         var index = 0
         while index < bytes.count() {
             if self.offset + index >= self.input.count() || self.input[self.offset + index] != bytes[index] {
-                return self.failure_void(ParseErrorKind.unexpected_token(), "unexpected token")
+                return (try self.failure_void(ParseErrorKind.unexpected_token(), "unexpected token"))
             }
             index++
         }
@@ -580,26 +481,26 @@ class Parser {
     private func number_value() Result<str, ParseError> {
         let start = self.offset
         if self.take(45) && self.offset == self.input.count() {
-            return self.failure_text(ParseErrorKind.invalid_number(), "invalid number")
+            return (try self.failure_text(ParseErrorKind.invalid_number(), "invalid number"))
         }
         if self.take(48) {
         } else {
             if self.offset == self.input.count() || self.input[self.offset] < 49 || self.input[self.offset] > 57 {
-                return self.failure_text(ParseErrorKind.invalid_number(), "invalid number")
+                return (try self.failure_text(ParseErrorKind.invalid_number(), "invalid number"))
             }
             while self.offset < self.input.count() && digit(self.input[self.offset]) { self.offset++ }
         }
         if self.take(46) {
             let fraction = self.offset
             while self.offset < self.input.count() && digit(self.input[self.offset]) { self.offset++ }
-            if fraction == self.offset { return self.failure_text(ParseErrorKind.invalid_number(), "invalid number") }
+            if fraction == self.offset { return (try self.failure_text(ParseErrorKind.invalid_number(), "invalid number")) }
         }
         if self.offset < self.input.count() && (self.input[self.offset] == 101 || self.input[self.offset] == 69) {
             self.offset++
             if self.offset < self.input.count() && (self.input[self.offset] == 43 || self.input[self.offset] == 45) { self.offset++ }
             let exponent = self.offset
             while self.offset < self.input.count() && digit(self.input[self.offset]) { self.offset++ }
-            if exponent == self.offset { return self.failure_text(ParseErrorKind.invalid_number(), "invalid number") }
+            if exponent == self.offset { return (try self.failure_text(ParseErrorKind.invalid_number(), "invalid number")) }
         }
         return Result<str, ParseError>.success(input_slice(self.input, start, self.offset))
     }
@@ -614,9 +515,9 @@ class Parser {
                 let view = @output[0:output.count()]
                 return Result<str, ParseError>.success(C.string(view))
             }
-            if byte < 32 { return self.failure_text(ParseErrorKind.unexpected_token(), "control character in string") }
+            if byte < 32 { return (try self.failure_text(ParseErrorKind.unexpected_token(), "control character in string")) }
             if byte != 92 { output.append(byte); continue }
-            if self.offset == self.input.count() { return self.failure_text(ParseErrorKind.unexpected_end(), "unexpected end in escape") }
+            if self.offset == self.input.count() { return (try self.failure_text(ParseErrorKind.unexpected_end(), "unexpected end in escape")) }
             let escape = self.input[self.offset]
             self.offset++
             if escape == 34 || escape == 92 || escape == 47 { output.append(escape) }
@@ -627,42 +528,42 @@ class Parser {
             elif escape == 116 { output.append(9 as uint8) }
             elif escape == 117 {
                 var scalar = 0
-                match self.unicode_unit() {
+                match (try self.unicode_unit()) {
                     failure(error) => { return Result<str, ParseError>.failure(error) }
                     success(value) => { scalar = value }
                 }
                 if scalar >= 55296 && scalar <= 56319 {
                     if self.offset + 2 > self.input.count() || self.input[self.offset] != 92 || self.input[self.offset + 1] != 117 {
-                        return self.failure_text(ParseErrorKind.invalid_unicode_escape(), "missing low surrogate")
+                        return (try self.failure_text(ParseErrorKind.invalid_unicode_escape(), "missing low surrogate"))
                     }
                     self.offset += 2
                     var low = 0
-                    match self.unicode_unit() {
+                    match (try self.unicode_unit()) {
                         failure(error) => { return Result<str, ParseError>.failure(error) }
                         success(value) => { low = value }
                     }
                     if low < 56320 || low > 57343 {
-                        return self.failure_text(ParseErrorKind.invalid_unicode_escape(), "invalid low surrogate")
+                        return (try self.failure_text(ParseErrorKind.invalid_unicode_escape(), "invalid low surrogate"))
                     }
                     scalar = 65536 + (scalar - 55296) * 1024 + (low - 56320)
                 } elif scalar >= 56320 && scalar <= 57343 {
-                    return self.failure_text(ParseErrorKind.invalid_unicode_escape(), "unpaired low surrogate")
+                    return (try self.failure_text(ParseErrorKind.invalid_unicode_escape(), "unpaired low surrogate"))
                 }
                 append_scalar(output, scalar)
-            } else { return self.failure_text(ParseErrorKind.invalid_escape(), "invalid escape") }
+            } else { return (try self.failure_text(ParseErrorKind.invalid_escape(), "invalid escape")) }
         }
-        return self.failure_text(ParseErrorKind.unexpected_end(), "unexpected end in string")
+        return (try self.failure_text(ParseErrorKind.unexpected_end(), "unexpected end in string"))
     }
 
     private func unicode_unit() Result<int, ParseError> {
         if self.offset + 4 > self.input.count() {
-            return self.failure_int(ParseErrorKind.unexpected_end(), "unexpected end in Unicode escape")
+            return (try self.failure_int(ParseErrorKind.unexpected_end(), "unexpected end in Unicode escape"))
         }
         var value = 0
         var index = 0
         while index < 4 {
             let digit_value = hex(self.input[self.offset])
-            if digit_value < 0 { return self.failure_int(ParseErrorKind.invalid_unicode_escape(), "invalid Unicode escape") }
+            if digit_value < 0 { return (try self.failure_int(ParseErrorKind.invalid_unicode_escape(), "invalid Unicode escape")) }
             value = value * 16 + digit_value
             self.offset++
             index++
@@ -671,64 +572,64 @@ class Parser {
     }
 
     private func array(depth:int) Result<Value, ParseError> {
-        if depth > self.maximum_depth { return self.failure(ParseErrorKind.depth_limit(), "depth limit exceeded") }
+        if depth > self.maximum_depth { return (try self.failure(ParseErrorKind.depth_limit(), "depth limit exceeded")) }
         self.offset++
         self.space()
         var values:Value[] = []
         if self.take(93) { return Result<Value, ParseError>.success(Value.array(values)) }
         while true {
-            match self.value(depth) {
+            match (try self.value(depth)) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(var value) => { values.append(value) }
             }
             self.space()
             if self.take(93) { return Result<Value, ParseError>.success(Value.array(values)) }
-            if !self.take(44) { return self.failure(ParseErrorKind.unexpected_token(), "expected comma or closing bracket") }
+            if !self.take(44) { return (try self.failure(ParseErrorKind.unexpected_token(), "expected comma or closing bracket")) }
             self.space()
         }
         panic("JSON array parser terminated unexpectedly")
     }
 
     private func object(depth:int) Result<Value, ParseError> {
-        if depth > self.maximum_depth { return self.failure(ParseErrorKind.depth_limit(), "depth limit exceeded") }
+        if depth > self.maximum_depth { return (try self.failure(ParseErrorKind.depth_limit(), "depth limit exceeded")) }
         self.offset++
         self.space()
         var members:Member[] = []
         if self.take(125) {
-            match Value.try_object(members) {
+            match (try Value.object(members)) {
                 success(var value) => { return Result<Value, ParseError>.success(value) }
-                failure(error) => { return self.failure(ParseErrorKind.duplicate_member(), "duplicate object member") }
+                failure(error) => { return (try self.failure(ParseErrorKind.duplicate_member(), "duplicate object member")) }
             }
         }
         while true {
-            if self.offset == self.input.count() { return self.failure(ParseErrorKind.unexpected_end(), "unexpected end") }
-            if self.input[self.offset] != 34 { return self.failure(ParseErrorKind.unexpected_token(), "expected object member name") }
+            if self.offset == self.input.count() { return (try self.failure(ParseErrorKind.unexpected_end(), "unexpected end")) }
+            if self.input[self.offset] != 34 { return (try self.failure(ParseErrorKind.unexpected_token(), "expected object member name")) }
             var name = ""
-            match self.string_value() {
+            match (try self.string_value()) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(value) => { name = value }
             }
             var member_index = 0
             while member_index < members.count() {
                 if members[member_index].name == name {
-                    return self.failure(ParseErrorKind.duplicate_member(), "duplicate object member")
+                    return (try self.failure(ParseErrorKind.duplicate_member(), "duplicate object member"))
                 }
                 member_index++
             }
             self.space()
-            if !self.take(58) { return self.failure(ParseErrorKind.unexpected_token(), "expected colon") }
-            match self.value(depth) {
+            if !self.take(58) { return (try self.failure(ParseErrorKind.unexpected_token(), "expected colon")) }
+            match (try self.value(depth)) {
                 failure(error) => { return Result<Value, ParseError>.failure(error) }
                 success(var value) => { members.append(Member(name:name, value:value)) }
             }
             self.space()
             if self.take(125) {
-                match Value.try_object(members) {
+                match (try Value.object(members)) {
                     success(var value) => { return Result<Value, ParseError>.success(value) }
-                    failure(error) => { return self.failure(ParseErrorKind.duplicate_member(), "duplicate object member") }
+                    failure(error) => { return (try self.failure(ParseErrorKind.duplicate_member(), "duplicate object member")) }
                 }
             }
-            if !self.take(44) { return self.failure(ParseErrorKind.unexpected_token(), "expected comma or closing brace") }
+            if !self.take(44) { return (try self.failure(ParseErrorKind.unexpected_token(), "expected comma or closing brace")) }
             self.space()
         }
         panic("JSON object parser terminated unexpectedly")
@@ -768,40 +669,26 @@ class Parser {
     private func failure_int(kind:ParseErrorKind, detail:str) Result<int, ParseError> { return Result<int, ParseError>.failure(self.error(kind, detail)) }
 }
 
-public func try_parse(text:str) Result<Value, ParseError> { return try_parse(text, 128) }
-public func try_parse(text:str, maximum_depth:int) Result<Value, ParseError> { return Value.parse_text(text, maximum_depth) }
+public func parse(text:str) Result<Value, ParseError> { return (try parse(text, 128)) }
+public func parse(text:str, maximum_depth:int) Result<Value, ParseError> { return (try Value.parse_text(text, maximum_depth)) }
 
-public func parse(text:str) Value { return parse(text, 128) }
-public func parse(text:str, maximum_depth:int) Value {
-    match try_parse(text, maximum_depth) {
-        failure(error) => { panic("$(error.line):$(error.column): " + error.detail) }
-        success(value) => { return value }
-    }
+
+public func read(path:Path) Result<Value, ReadError> {
+    return (try read(path, default_read_options()))
 }
 
-public func try_read(path:Path) Result<Value, ReadError> {
-    return try_read(path, default_read_options())
-}
-
-public func try_read(path:Path, options:ReadOptions) Result<Value, ReadError> {
+public func read(path:Path, options:ReadOptions) Result<Value, ReadError> {
     var text = ""
-    match File.read_text(path, options.maximum_bytes) {
+    match (try File.read_text(path, options.maximum_bytes)) {
         failure(error) => { return Result<Value, ReadError>.failure(ReadError.file(error)) }
         success(value) => { text = value }
     }
-    match try_parse(text, options.maximum_depth) {
+    match (try parse(text, options.maximum_depth)) {
         failure(error) => { return Result<Value, ReadError>.failure(ReadError.parse(error)) }
         success(value) => { return Result<Value, ReadError>.success(value) }
     }
 }
 
-public func read(path:Path) Value { return read(path, default_read_options()) }
-public func read(path:Path, options:ReadOptions) Value {
-    match try_read(path, options) {
-        failure(error) => { panic(read_error_detail(error)) }
-        success(value) => { return value }
-    }
-}
 
 public func stringify(value:Value) str { return stringify(value, Format.compact()) }
 
@@ -813,21 +700,14 @@ public func stringify(value:Value, format:Format) str {
     return value.encoded(pretty)
 }
 
-public func try_write(path:Path, value:Value) Result<void, Error> {
-    return try_write(path, value, Format.pretty())
+public func write(path:Path, value:Value) Result<void, Error> {
+    return (try write(path, value, Format.pretty()))
 }
 
-public func try_write(path:Path, value:Value, format:Format) Result<void, Error> {
-    return File.write_all(path, stringify(value, format))
+public func write(path:Path, value:Value, format:Format) Result<void, Error> {
+    return (try File.write_all(path, stringify(value, format)))
 }
 
-public func write(path:Path, value:Value) { write(path, value, Format.pretty()) }
-public func write(path:Path, value:Value, format:Format) {
-    match try_write(path, value, format) {
-        failure(error) => { panic(error.detail) }
-        success => {}
-    }
-}
 
 func default_read_options() ReadOptions {
     return ReadOptions(maximum_bytes:16 * 1024 * 1024, maximum_depth:128)
